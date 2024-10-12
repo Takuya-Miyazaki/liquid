@@ -8,7 +8,7 @@ module Liquid
   #   c = Condition.new(1, '==', 1)
   #   c.evaluate #=> true
   #
-  class Condition #:nodoc:
+  class Condition # :nodoc:
     @@operators = {
       '==' => ->(cond, left, right) {  cond.send(:equal_variables, left, right) },
       '!=' => ->(cond, left, right) { !cond.send(:equal_variables, left, right) },
@@ -27,8 +27,26 @@ module Liquid
       end,
     }
 
+    class MethodLiteral
+      attr_reader :method_name, :to_s
+
+      def initialize(method_name, to_s)
+        @method_name = method_name
+        @to_s = to_s
+      end
+    end
+
+    @@method_literals = {
+      'blank' => MethodLiteral.new(:blank?, '').freeze,
+      'empty' => MethodLiteral.new(:empty?, '').freeze,
+    }
+
     def self.operators
       @@operators
+    end
+
+    def self.parse_expression(parse_context, markup)
+      @@method_literals[markup] || parse_context.parse_expression(markup)
     end
 
     attr_reader :attachment, :child_condition
@@ -43,7 +61,7 @@ module Liquid
       @child_condition = nil
     end
 
-    def evaluate(context = Context.new)
+    def evaluate(context = deprecated_default_context)
       condition = self
       result = nil
       loop do
@@ -51,9 +69,9 @@ module Liquid
 
         case condition.child_relation
         when :or
-          break if result
+          break if Liquid::Utils.to_liquid_value(result)
         when :and
-          break unless result
+          break unless Liquid::Utils.to_liquid_value(result)
         else
           break
         end
@@ -91,7 +109,7 @@ module Liquid
     private
 
     def equal_variables(left, right)
-      if left.is_a?(Liquid::Expression::MethodLiteral)
+      if left.is_a?(MethodLiteral)
         if right.respond_to?(left.method_name)
           return right.send(left.method_name)
         else
@@ -99,7 +117,7 @@ module Liquid
         end
       end
 
-      if right.is_a?(Liquid::Expression::MethodLiteral)
+      if right.is_a?(MethodLiteral)
         if left.respond_to?(right.method_name)
           return left.send(right.method_name)
         else
@@ -116,8 +134,8 @@ module Liquid
       # return this as the result.
       return context.evaluate(left) if op.nil?
 
-      left  = context.evaluate(left)
-      right = context.evaluate(right)
+      left  = Liquid::Utils.to_liquid_value(context.evaluate(left))
+      right = Liquid::Utils.to_liquid_value(context.evaluate(right))
 
       operation = self.class.operators[op] || raise(Liquid::ArgumentError, "Unknown operator #{op}")
 
@@ -132,11 +150,19 @@ module Liquid
       end
     end
 
+    def deprecated_default_context
+      warn("DEPRECATION WARNING: Condition#evaluate without a context argument is deprecated" \
+        " and will be removed from Liquid 6.0.0.")
+      Context.new
+    end
+
     class ParseTreeVisitor < Liquid::ParseTreeVisitor
       def children
         [
-          @node.left, @node.right,
-          @node.child_condition, @node.attachment
+          @node.left,
+          @node.right,
+          @node.child_condition,
+          @node.attachment
         ].compact
       end
     end

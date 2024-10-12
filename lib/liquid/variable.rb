@@ -30,7 +30,7 @@ module Liquid
       @parse_context = parse_context
       @line_number   = parse_context.line_number
 
-      parse_with_selected_parser(markup)
+      strict_parse_with_error_mode_fallback(markup)
     end
 
     def raw
@@ -47,7 +47,7 @@ module Liquid
 
       name_markup   = Regexp.last_match(1)
       filter_markup = Regexp.last_match(2)
-      @name         = Expression.parse(name_markup)
+      @name         = parse_context.parse_expression(name_markup)
       if filter_markup =~ FilterMarkupRegex
         filters = Regexp.last_match(1).scan(FilterParser)
         filters.each do |f|
@@ -63,7 +63,9 @@ module Liquid
       @filters = []
       p = Parser.new(markup)
 
-      @name = Expression.parse(p.expression)
+      return if p.look(:end_of_string)
+
+      @name = parse_context.parse_expression(p.expression)
       while p.consume?(:pipe)
         filtername = p.consume(:id)
         filterargs = p.consume?(:colon) ? parse_filterargs(p) : []
@@ -81,9 +83,11 @@ module Liquid
     end
 
     def render(context)
-      obj = @filters.inject(context.evaluate(@name)) do |output, (filter_name, filter_args, filter_kwargs)|
+      obj = context.evaluate(@name)
+
+      @filters.each do |filter_name, filter_args, filter_kwargs|
         filter_args = evaluate_filter_expressions(context, filter_args, filter_kwargs)
-        context.invoke(filter_name, output, *filter_args)
+        obj = context.invoke(filter_name, obj, *filter_args)
       end
 
       context.apply_global_filter(obj)
@@ -118,9 +122,9 @@ module Liquid
       unparsed_args.each do |a|
         if (matches = a.match(JustTagAttributes))
           keyword_args           ||= {}
-          keyword_args[matches[1]] = Expression.parse(matches[2])
+          keyword_args[matches[1]] = parse_context.parse_expression(matches[2])
         else
-          filter_args << Expression.parse(a)
+          filter_args << parse_context.parse_expression(a)
         end
       end
       result = [filter_name, filter_args]

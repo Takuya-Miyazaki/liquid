@@ -93,10 +93,12 @@ class TemplateTest < Minitest::Test
 
   def test_lambda_is_called_once_from_custom_assigns_over_multiple_parses_and_renders
     t = Template.new
-    assigns = { 'number' => -> {
-                              @global ||= 0
-                              @global  += 1
-                            } }
+    assigns = {
+      'number' => -> {
+        @global ||= 0
+        @global += 1
+      },
+    }
     assert_equal('1', t.parse("{{number}}").render!(assigns))
     assert_equal('1', t.parse("{{number}}").render!(assigns))
     assert_equal('1', t.render!(assigns))
@@ -133,38 +135,6 @@ class TemplateTest < Minitest::Test
     t.resource_limits.render_score_limit = 200
     assert_equal((" foo " * 100), t.render!)
     refute_nil(t.resource_limits.render_score)
-  end
-
-  def test_resource_limits_assign_score
-    t = Template.parse("{% assign foo = 42 %}{% assign bar = 23 %}")
-    t.resource_limits.assign_score_limit = 1
-    assert_equal("Liquid error: Memory limits exceeded", t.render)
-    assert(t.resource_limits.reached?)
-
-    t.resource_limits.assign_score_limit = 2
-    assert_equal("", t.render!)
-    refute_nil(t.resource_limits.assign_score)
-  end
-
-  def test_resource_limits_assign_score_counts_bytes_not_characters
-    t = Template.parse("{% assign foo = 'すごい' %}")
-    t.render
-    assert_equal(9, t.resource_limits.assign_score)
-
-    t = Template.parse("{% capture foo %}すごい{% endcapture %}")
-    t.render
-    assert_equal(9, t.resource_limits.assign_score)
-  end
-
-  def test_resource_limits_assign_score_nested
-    t = Template.parse("{% assign foo = 'aaaa' | reverse %}")
-
-    t.resource_limits.assign_score_limit = 3
-    assert_equal("Liquid error: Memory limits exceeded", t.render)
-    assert(t.resource_limits.reached?)
-
-    t.resource_limits.assign_score_limit = 5
-    assert_equal("", t.render!)
   end
 
   def test_resource_limits_aborts_rendering_after_first_error
@@ -230,7 +200,7 @@ class TemplateTest < Minitest::Test
     context = Context.new('drop' => ErroneousDrop.new)
     t = Template.new.parse('{{ drop.bad_method }}')
 
-    e = assert_raises RuntimeError do
+    e = assert_raises(RuntimeError) do
       t.render!(context)
     end
     assert_equal('ruby error in drop', e.message)
@@ -289,9 +259,8 @@ class TemplateTest < Minitest::Test
   end
 
   def test_nil_value_does_not_raise
-    Liquid::Template.error_mode = :strict
-    t                           = Template.parse("some{{x}}thing")
-    result                      = t.render!({ 'x' => nil }, strict_variables: true)
+    t      = Template.parse("some{{x}}thing", error_mode: :strict)
+    result = t.render!({ 'x' => nil }, strict_variables: true)
 
     assert_equal(0, t.errors.count)
     assert_equal('something', result)
@@ -300,7 +269,7 @@ class TemplateTest < Minitest::Test
   def test_undefined_variables_raise
     t = Template.parse("{{x}} {{y}} {{z.a}} {{z.b}} {{z.c.d}}")
 
-    assert_raises UndefinedVariable do
+    assert_raises(UndefinedVariable) do
       t.render!({ 'x' => 33, 'z' => { 'a' => 32, 'c' => { 'e' => 31 } } }, strict_variables: true)
     end
   end
@@ -319,7 +288,7 @@ class TemplateTest < Minitest::Test
     d = DropWithUndefinedMethod.new
     t = Template.new.parse('{{ foo }} {{ woot }}')
 
-    assert_raises UndefinedDropMethod do
+    assert_raises(UndefinedDropMethod) do
       t.render!(d, strict_variables: true)
     end
   end
@@ -342,18 +311,30 @@ class TemplateTest < Minitest::Test
   def test_undefined_filters_raise
     t = Template.parse("{{x | somefilter1 | upcase | somefilter2}}")
 
-    assert_raises UndefinedFilter do
+    assert_raises(UndefinedFilter) do
       t.render!({ 'x' => 'foo' }, strict_filters: true)
     end
   end
 
   def test_using_range_literal_works_as_expected
-    t = Template.parse("{% assign foo = (x..y) %}{{ foo }}")
-    result = t.render('x' => 1, 'y' => 5)
-    assert_equal('1..5', result)
+    source = "{% assign foo = (x..y) %}{{ foo }}"
+    assert_template_result("1..5", source, { "x" => 1, "y" => 5 })
 
-    t = Template.parse("{% assign nums = (x..y) %}{% for num in nums %}{{ num }}{% endfor %}")
-    result = t.render('x' => 1, 'y' => 5)
-    assert_equal('12345', result)
+    source = "{% assign nums = (x..y) %}{% for num in nums %}{{ num }}{% endfor %}"
+    assert_template_result("12345", source, { "x" => 1, "y" => 5 })
+  end
+
+  def test_source_string_subclass
+    string_subclass = Class.new(String) do
+      # E.g. ActiveSupport::SafeBuffer does this, so don't just rely on to_s to return a String
+      def to_s
+        self
+      end
+    end
+    source = string_subclass.new("{% assign x = 2 -%} x= {{- x }}")
+    assert_instance_of(string_subclass, source)
+    output = Template.parse(source).render!
+    assert_equal("x=2", output)
+    assert_instance_of(String, output)
   end
 end

@@ -17,11 +17,12 @@ Gem::Specification.new do |s|
   s.license     = "MIT"
   # s.description = "A secure, non-evaling end user template engine with aesthetic markup."
 
-  s.required_ruby_version     = ">= 2.4.0"
+  s.required_ruby_version     = ">= 2.7.0"
   s.required_rubygems_version = ">= 1.3.7"
 
-  s.test_files  = Dir.glob("{test}/**/*")
-  s.files       = Dir.glob("{lib}/**/*") + %w(LICENSE README.md)
+  s.metadata['allowed_push_host'] = 'https://rubygems.org'
+
+  s.files = Dir.glob("{lib}/**/*") + %w(LICENSE README.md)
 
   s.extra_rdoc_files = ["History.md", "README.md"]
 
